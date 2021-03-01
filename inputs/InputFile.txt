@@ -1,0 +1,66 @@
+# This is an example of an input file.
+# Let’s agree that any line starting with a #
+# is a comment and gets skipped in the
+# parsing.
+
+# The metabolite section is simply a list of 
+# metabolite names.
+METABOLITES
+A
+B
+C
+D
+
+# In the transport section, the user provides
+# the metabolite name, specifies the mode
+# of transport (diffusion, symport, antiport),
+# and provides the relevant parameters. For
+# example, for diffusive transport, only the
+# membrane permeability to the metabolite
+# us required (P).
+TRANSPORT
+A
+Mode: Diffusion
+P: 1e-4
+
+C
+Mode: Diffusion
+P: 2e-4
+
+D
+Mode: Diffusion
+P: 2e-4
+
+# In the reaction section, the user writes the
+# reactions using the metabolite names. The
+# stoichiometry of the reaction is provided in
+# numbers before the metabolite names. For
+# example: 1X + 2Y = 2Z.
+# The user additionally provides the kinetic
+# parameters, the standard-state Gibbs free
+# energy, and the isotopic parameters.
+REACTIONS
+# 1A=1B
+r_vec:A
+p_vec:B
+nr_vec:1
+np_vec:1
+kp:1e-3
+Kr_vec:1e-3
+Kp_vec:1e-4
+DGro:-2e3
+ap:1.010
+aeq:1.050
+
+# 1B=2C+3D
+r_vec:B
+p_vec:C,D
+nr_vec:1
+np_vec:2,3
+kp:1e-3
+Kr_vec:1e-3
+Kp_vec:1e-4,1e-4
+DGro:-2e3
+ap:1.010
+aeq:1.050
+
