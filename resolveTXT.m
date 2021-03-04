@@ -1,10 +1,11 @@
 function [metabolites, transport, reactions] = resolveTXT()
-    path = 'inputs/InputFile.txt';
+    input_path = 'input/InputFile.txt';
+    output_path='output/setup.mat';
     lines = {};
     metabolites = {};
     transport = {};
     reactions = {};
-    fp = fopen(path, 'r');
+    fp = fopen(input_path, 'r');
 
     line = fgetl(fp);
 
@@ -17,16 +18,20 @@ function [metabolites, transport, reactions] = resolveTXT()
         line = fgetl(fp);
     end
 
+    [~, spos] = ismember('ISOTOPICSPECIES', lines);
     [~, mpos] = ismember('METABOLITES', lines);
     [~, tpos] = ismember('TRANSPORT', lines);
     [~, rpos] = ismember('REACTIONS', lines);
 
-    metabolites = lines(mpos + 1:tpos - 1);
+    % temp = split(lines(mpos + 1:tpos - 1),':')
+    temp = split(lines(mpos + 1:tpos - 1), ':');
+    metabolites(end + 1, :) = temp(:, :, 1);
+    metabolites(end + 1, :) = num2cell(str2double(temp(:, :, 2)));
 
     cur = 0;
 
     for i = tpos + 1:rpos - 1
-        [in, id] = ismember(lines{i}, metabolites);
+        [in, id] = ismember(lines{i}, metabolites(1, :));
 
         if in
             transport(end + 1, :) = {lines(i), containers.Map};
@@ -56,18 +61,18 @@ function [metabolites, transport, reactions] = resolveTXT()
             pair = strip(split(lines(j), ':'));
 
             if endsWith(pair{1}, 'vec')
-                
-                pair{2} = strip(split(pair{2},','))';
+
+                pair{2} = strip(split(pair{2}, ','))'; % use col vector
+
                 if ~isnan(sum(str2double(pair{2})))
                     pair{2} = str2double(pair{2});
                 end
-                
 
             elseif ~isnan(str2double(pair{2}))
                 pair{2} = str2double(pair{2});
             end
-            reactions{i+1, name_map(pair{1})} = pair{2};
 
+            reactions{i + 1, name_map(pair{1})} = pair{2};
 
             % if str2double(pair{2}) ~= []
             %     reactions{i+1, name_map(pair{1})} = str2double(pair{2});
@@ -80,11 +85,13 @@ function [metabolites, transport, reactions] = resolveTXT()
         reactions{i + 1, name_map('km')} = reactions{i + 1, name_map('kp')} / Keq(reactions{i + 1, name_map('DGro')}, 300);
         reactions{i + 1, name_map('am')} = reactions{i + 1, name_map('ap')} / reactions{i + 1, name_map('aeq')};
     end
+    reactions=cell2table(reactions,'VariableNames',name_vec);
     
+    save(output_path,'metabolites','transport','reactions')
 
 end
 
 function output = Keq(DGro, T)
     R = 8.314; %J/(mol*K)
-    output = exp(-DGro /( R * T));
+    output = exp(-DGro / (R * T));
 end
