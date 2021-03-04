@@ -57,37 +57,80 @@ function output = processInfo(metabolites, transport, reactions, R, CEx, C0, Rsy
     prop_vec = {'dCdt', 'dCRdt', 'dRdt'};
     CE = 1; % need to change
 
-    names = metabolites(1,:);
-    output = cell2table(cell(size(metabolites, 2), length(prop_vec)), 'VariableNames', prop_vec);
-    output.Properties.RowNames = names;
+    names = metabolites(1, :);
+    output = sym('temp',[size(metabolites, 2), length(prop_vec)]);
 
     for i = 1:height(reactions)
-        % calc dCdt
-        concr_vec = find(strcmp(names,))
-        J_plus = flux(table2array(reactions(i, 'kp')), CE, )
+
+        r_vec = reactions.r_vec{i};
+        p_vec = reactions.p_vec{i};
+        % [r_index, p_index] = findPos(names, r_vec, p_vec);
+        r_index = [];
+        p_index = [];
+
+        for j = 1:size(r_vec, 1)
+            r_index(end + 1) = find(strcmp(names, r_vec(j)));
+        end
+
+        for j = 1:size(p_vec, 1)
+            p_index(end + 1) = find(strcmp(names, p_vec(j)));
+        end
+
+        J_plus = flux(reactions.kp(i), CE, C_sym(r_index), reactions.Kr_vec{i}, reactions.nr_vec{i}, ...
+            C_sym(p_index), reactions.Kp_vec{i}, reactions.np_vec{i});
+
+        J_minus = flux(reactions.km(i), CE, C_sym(p_index), reactions.Kp_vec{i}, reactions.np_vec{i}, ...
+            C_sym(r_index), reactions.Kr_vec{i}, reactions.nr_vec{i});
+
+        % calc dCdt & dCRdt
+        for j = r_index
+            output(j, 1) = output(j, 1) + J_plus - J_minus;
+
+            for k = p_index
+                output(j,2) = output(j,2) - J_plus * R_sym(j) * reactions.ap(i) + J_minus * R_sym(k) * reactions.am(i);
+            end
+
+        end
+
+        for j = p_index
+            output(j, 1)  = output(j, 1)  - J_plus + J_minus;
+
+            for k = r_index
+                output(j,2) = output(j,2) + J_plus * R_sym(k) * reactions.ap(i) - J_minus*R_sym(j) * reactions.am(i);
+            end
+
+        end
+
+        % calc dCRdt
+    end
+    for i=1:size(output,1)
+        output(i,3)=(output(i,2)-R_sym(i)*output(i,1))/C_sym(i);
+    end
+    output=subs(output, sym('temp',size(output)), zeros(size(output)));
+end
+
+
+
+
+
+    function dCdt = dCdt_eqns(t, C, J)
+        % C: Vector of metabolites (A,B,C,D)
+        dCdt = zeros(size(C));
+
+        % Specify the differential equations
+        dCdt(1) = JAtrans - JA_B + JB_A;
+        dCdt(2) = JA_B - JB_A - JB_CD + JCD_B;
 
     end
 
-end
+    function dRdt = dRdt_eqns(t, R, J)
+        dRdt = zeros(size(R));
 
-function dCdt = dCdt_eqns(t, C, J)
-    % C: Vector of metabolites (A,B,C,D)
-    dCdt = zeros(size(C));
+    end
 
-    % Specify the differential equations
-    dCdt(1) = JAtrans - JA_B + JB_A;
-    dCdt(2) = JA_B - JB_A - JB_CD + JCD_B;
-
-end
-
-function dRdt = dRdt_eqns(t, R, J)
-    dRdt = zeros(size(R));
-
-end
-
-function J = flux(k, E, concr_vec, Kr_vec, nr_vec, concp_vec, Kp_vec, np_vec)
-    coef = k * E;
-    numerator = prod((concr_vec ./ Kr_vec).^nr_vec);
-    denominator = 1 + numerator + prod((concp_vec ./ Kp_vec).^np_vec);
-    J = coef * numerator / denominator;
-end
+    function J = flux(k, E, concr_vec, Kr_vec, nr_vec, concp_vec, Kp_vec, np_vec)
+        coef = k * E;
+        numerator = prod((concr_vec ./ Kr_vec).^nr_vec);
+        denominator = 1 + numerator + prod((concp_vec ./ Kp_vec).^np_vec);
+        J = coef * numerator / denominator;
+    end

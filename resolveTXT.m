@@ -1,6 +1,6 @@
 function [metabolites, transport, reactions] = resolveTXT()
     input_path = 'input/InputFile.txt';
-    output_path='output/setup.mat';
+    output_path = 'output/setup.mat';
     lines = {};
     metabolites = {};
     transport = {};
@@ -62,32 +62,37 @@ function [metabolites, transport, reactions] = resolveTXT()
 
             if endsWith(pair{1}, 'vec')
 
-                pair{2} = strip(split(pair{2}, ','))'; % use col vector
+                pair{2} = strip(split(pair{2}, ',')); % use col vector
 
                 if ~isnan(sum(str2double(pair{2})))
                     pair{2} = str2double(pair{2});
+
+                    if size(pair{2}, 2) == 1
+                        pair{2} = {pair{2}};
+                    end
+
+                else
+                    pair{2} = string(pair{2});
                 end
 
             elseif ~isnan(str2double(pair{2}))
                 pair{2} = str2double(pair{2});
+            else
+                pair{2} = string(pair{2});
+
             end
 
             reactions{i + 1, name_map(pair{1})} = pair{2};
 
-            % if str2double(pair{2}) ~= []
-            %     reactions{i+1, name_map(pair{1})} = str2double(pair{2});
-            % else
-            %     reactions{i+1, name_map(pair{1})} = pair{2};
-            % end
         end
 
         % calculate the km and am
         reactions{i + 1, name_map('km')} = reactions{i + 1, name_map('kp')} / Keq(reactions{i + 1, name_map('DGro')}, 300);
         reactions{i + 1, name_map('am')} = reactions{i + 1, name_map('ap')} / reactions{i + 1, name_map('aeq')};
     end
-    reactions=cell2table(reactions,'VariableNames',name_vec);
-    
-    save(output_path,'metabolites','transport','reactions')
+
+    reactions = cell2table(reactions, 'VariableNames', name_vec);
+    save(output_path, 'metabolites', 'transport', 'reactions')
 
 end
 
