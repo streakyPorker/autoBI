@@ -1,4 +1,4 @@
-function [metabolites, transport, reactions] = resolveTXT()
+function [metabolites, transport, reactions] = resolveTXT(input_path,output_path)
     input_path = 'input/InputFile.txt';
     output_path = 'output/setup.mat';
     lines = {};
@@ -34,12 +34,12 @@ function [metabolites, transport, reactions] = resolveTXT()
         [in, id] = ismember(lines{i}, metabolites(1, :));
 
         if in
-            transport(end + 1, :) = {lines(i), containers.Map};
+            transport(end + 1, :) = {lines{i}, containers.Map};
             cur = id;
         else
-            pair = strip(split(lines(i), ':'));
+            pair = strip(split(lines{i}, ':'));
 
-            if str2double(pair{2}) ~= 0
+            if ~isnan(str2double(pair{2}))
                 transport{end, 2}(pair{1}) = str2double(pair{2});
             else
                 transport{end, 2}(pair{1}) = pair{2};
@@ -86,8 +86,8 @@ function [metabolites, transport, reactions] = resolveTXT()
 
         end
 
-        % calculate the km and am
-        reactions{i + 1, name_map('km')} = reactions{i + 1, name_map('kp')} / Keq(reactions{i + 1, name_map('DGro')}, 300);
+        % calculate am,leave km to the specified T
+        reactions{i + 1, name_map('km')} = NaN;
         reactions{i + 1, name_map('am')} = reactions{i + 1, name_map('ap')} / reactions{i + 1, name_map('aeq')};
     end
 
@@ -96,7 +96,4 @@ function [metabolites, transport, reactions] = resolveTXT()
 
 end
 
-function output = Keq(DGro, T)
-    R = 8.314; %J/(mol*K)
-    output = exp(-DGro / (R * T));
-end
+

@@ -1,4 +1,4 @@
-function [t, C, Jf, Jb, anet] = runModel(data_path, TC, CEx, C0, tspan)
+function [t, CR,eqns] = runModel(data_path, TC, CEx, C0, tspan)
     % Inputs:
     %   T: Temperature (Celcius)
     %   CEx: Extracellular concentrations of all metabolites (0 for some)
@@ -13,58 +13,31 @@ function [t, C, Jf, Jb, anet] = runModel(data_path, TC, CEx, C0, tspan)
     %   reaction stoichiometry)
     %   anet: Net isotopic fractionation associated with each of the reaction
 
-    data_path = 'output/setup.mat';
-    load(data_path);
+
+
+    % data_path = 'output/setup.mat';
+    load(data_path,'metabolites', 'transport', 'reactions');
+
     R_sym = sym('R', [size(metabolites, 2), 1]);
     C_sym = sym('C', [size(metabolites, 2), 1]);
 
     TK = TC + 273.15;
-
-    processInfo(metabolites, transport, reactions, R, CEx, C0, Rsym, C_sym, TK)
-
-    options = odeset('NonNegative', 1:length(C0));
-
-    if tspan > 0
-        [t, C] = ode15s(@(t, C) all_eqns(t, C, CEx, TK), [0, tspan], C0, options);
-    else
-        % Run the model until a steady state is achieved
-        atSS = 0;
-        tspan = 3600;
-
-        while atSS == 0
-            % Run the model with a starting tspan
-            [t, C] = ode15s(@(t, C) all_eqns(t, C, CEx, TK), [tspan, 0], C0, options);
-
-            % Check for convergence to a steady state (change in C over
-            %   2nd half of simulation is less than a specified tolerance)
-            convTol = 1e-4;
-            ihalf = find(abs(t - t(end)) == min(abs(t - t(end)))); ihalf = ihalf(1);
-
-            % If no convergence, increase tspan
-            if any(C(ihalf, :) ./ C(end, :) > convTol)
-                tspan = tspan * 2;
-            else
-                atSS = 1;
-            end
-
-        end
-
+    % reactions{i + 1, name_map('km')} = reactions{i + 1, name_map('kp')} / Keq(reactions{i + 1, name_map('DGro')}
+    for i = 1:height(reactions)
+        reactions.km(i) = reactions.kp(i) / Keq(reactions.DGro(i), TK);
     end
 
-end
-
-function output = processInfo(metabolites, transport, reactions, R, CEx, C0, Rsym, C_sym, TK)
     prop_vec = {'dCdt', 'dCRdt', 'dRdt'};
     CE = 1; % need to change
+    R0 = cell2mat(metabolites(2, :));
 
     names = metabolites(1, :);
-    output = sym('temp',[size(metabolites, 2), length(prop_vec)]);
+    eqns = sym('tmp', [size(metabolites, 2), length(prop_vec)]);
 
     for i = 1:height(reactions)
 
         r_vec = reactions.r_vec{i};
         p_vec = reactions.p_vec{i};
-        % [r_index, p_index] = findPos(names, r_vec, p_vec);
         r_index = [];
         p_index = [];
 
@@ -76,61 +49,118 @@ function output = processInfo(metabolites, transport, reactions, R, CEx, C0, Rsy
             p_index(end + 1) = find(strcmp(names, p_vec(j)));
         end
 
+        % calculate the flux of both direction
         J_plus = flux(reactions.kp(i), CE, C_sym(r_index), reactions.Kr_vec{i}, reactions.nr_vec{i}, ...
             C_sym(p_index), reactions.Kp_vec{i}, reactions.np_vec{i});
 
         J_minus = flux(reactions.km(i), CE, C_sym(p_index), reactions.Kp_vec{i}, reactions.np_vec{i}, ...
             C_sym(r_index), reactions.Kr_vec{i}, reactions.nr_vec{i});
 
-        % calc dCdt & dCRdt
+        % calculate dCdt & dCRdt
         for j = r_index
-            output(j, 1) = output(j, 1) + J_plus - J_minus;
+            eqns(j, 1) = eqns(j, 1) + J_plus - J_minus;
 
             for k = p_index
-                output(j,2) = output(j,2) - J_plus * R_sym(j) * reactions.ap(i) + J_minus * R_sym(k) * reactions.am(i);
+                eqns(j, 2) = eqns(j, 2) - J_plus * R_sym(j) * reactions.ap(i) + J_minus * R_sym(k) * reactions.am(i);
             end
 
         end
 
         for j = p_index
-            output(j, 1)  = output(j, 1)  - J_plus + J_minus;
+            eqns(j, 1) = eqns(j, 1) - J_plus + J_minus;
 
             for k = r_index
-                output(j,2) = output(j,2) + J_plus * R_sym(k) * reactions.ap(i) - J_minus*R_sym(j) * reactions.am(i);
+                eqns(j, 2) = eqns(j, 2) + J_plus * R_sym(k) * reactions.ap(i) - J_minus * R_sym(j) * reactions.am(i);
+            end
+
+        end
+    end
+
+    % calc the transport position
+    for i = 1:size(transport, 1)
+        pos = find(strcmp(names, transport{i, 1}));
+        dict = transport{i, 2};
+
+        if dict("Mode") == "Diffusion"
+            P = dict("P");
+            J = -P * (C_sym(pos) - CEx(pos));
+            in = (J / abs(J) + 1) / 2;
+            out = (J / abs(J) - 1) / 2;
+            
+            eqns(pos, 1) = eqns(pos, 1) + J;
+            eqns(pos, 2) = eqns(pos, 2) + J * R0(pos) * in + J * R_sym(pos) * out;
+        end
+    end
+
+    % calculate dRdt
+    for i = 1:size(eqns, 1)
+        eqns(i, 3) = (eqns(i, 2) - R_sym(i) * eqns(i, 1)) / C_sym(i);
+    end
+
+    eqns = subs(eqns, sym('tmp', size(eqns)), zeros(size(eqns)));
+
+    options = odeset('NonNegative', 1:length(C0) * 2);
+
+    R0 = cell2mat(metabolites(2, :)');
+    ini_val = [C0; R0];
+
+    if tspan > 0
+
+        [t, CR] = ode15s(@(t, CR) all_eqns(t, CR, eqns, C_sym, R_sym), [0, tspan], ini_val, options);
+    else
+        % Run the model until a steady state is achieved
+        atSS = 0;
+        tspan = 3600;
+
+        while atSS == 0
+
+            % Run the model with a starting tspan
+            [t, CR] = ode15s(@(t, CR) all_eqns(t, CR, eqns, C_sym, R_sym), [0, tspan], ini_val, options);
+            t(end, :)
+            CR(end - 30:end, :)
+            % Check for convergence to a steady state (change in C over
+            %   2nd half of simulation is less than a specified tolerance)
+            convTol = 1e-4;
+            ihalf = find(t <= t(end) / 2);
+            ihalf = ihalf(end);
+            % ihalf = find(abs(t - t(end)) == min(abs(t - t(end)))); ihalf = ihalf(1);
+
+            % If no convergence, increase tspan
+            if any(abs(CR(ihalf, :) - CR(end, :)) ./ CR(end, :) > convTol)
+                abs(CR(ihalf, :) - CR(end, :)) ./ CR(end, :)
+                tspan = tspan * 2;
+            else
+                atSS = 1;
             end
 
         end
 
-        % calc dCRdt
     end
-    for i=1:size(output,1)
-        output(i,3)=(output(i,2)-R_sym(i)*output(i,1))/C_sym(i);
-    end
-    output=subs(output, sym('temp',size(output)), zeros(size(output)));
+
+    % {t,C}
+    % plot(t, C);
+
 end
 
+function eqn = all_eqns(t, CR, eqns, C_sym, R_sym)
+    eqn = [eqns(:, 1); eqns(:, 1)];
+    eqn = subs(eqn, C_sym, CR(1:length(C_sym)));
+    eqn = subs(eqn, R_sym, CR(length(R_sym) + 1:2 * length(R_sym)));
+    eqn = eval(eqn);
 
+end
 
+% function eqns = processInfo(metabolites, transport, reactions, CEx, R_sym, C_sym)
+% end
 
+function output = Keq(DGro, T)
+    R = 8.314; %J/(mol*K)
+    output = exp(-DGro / (R * T));
+end
 
-    function dCdt = dCdt_eqns(t, C, J)
-        % C: Vector of metabolites (A,B,C,D)
-        dCdt = zeros(size(C));
-
-        % Specify the differential equations
-        dCdt(1) = JAtrans - JA_B + JB_A;
-        dCdt(2) = JA_B - JB_A - JB_CD + JCD_B;
-
-    end
-
-    function dRdt = dRdt_eqns(t, R, J)
-        dRdt = zeros(size(R));
-
-    end
-
-    function J = flux(k, E, concr_vec, Kr_vec, nr_vec, concp_vec, Kp_vec, np_vec)
-        coef = k * E;
-        numerator = prod((concr_vec ./ Kr_vec).^nr_vec);
-        denominator = 1 + numerator + prod((concp_vec ./ Kp_vec).^np_vec);
-        J = coef * numerator / denominator;
-    end
+function J = flux(k, E, concr_vec, Kr_vec, nr_vec, concp_vec, Kp_vec, np_vec)
+    coef = k * E;
+    numerator = prod((concr_vec ./ Kr_vec).^nr_vec);
+    denominator = 1 + numerator + prod((concp_vec ./ Kp_vec).^np_vec);
+    J = coef * numerator / denominator;
+end
